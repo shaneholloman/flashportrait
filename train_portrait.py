@@ -907,12 +907,12 @@ def main():
     combined_model = CombinedModel(transformer3d=transformer3d, portrait_encoder=portrait_encoder)
     combined_model.transformer3d.train()
     # trainable_modules = ["emo_k_proj", "emo_v_proj"]
-    trainable_modules = ["attn"]
+    trainable_modules = ["attn", "portrait_encoder"]
     for name, param in combined_model.transformer3d.named_parameters():
         if "attn" in name and "blocks" in name:
             param.requires_grad = True
     for name, param in combined_model.portrait_encoder.named_parameters():
-        param.requires_grad = False
+        param.requires_grad = True
 
     # Create EMA for the transformer3d.
     if args.use_ema:
@@ -978,7 +978,7 @@ def main():
         if name in in_already:
             continue
         for trainable_module_name in trainable_modules:
-            if trainable_module_name in name and "blocks" in name:
+            if trainable_module_name in name and ("blocks" in name or "portrait_encoder" in name):
                 in_already.append(name)
                 high_lr_flag = True
                 trainable_params_optim[0]['params'].append(param)
@@ -1529,4 +1529,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
