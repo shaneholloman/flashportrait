@@ -135,6 +135,9 @@ Setting `--GPU_memory_mode` to `model_cpu_offload` can significantly cut GPU mem
 
 - higher resolution setting will result in higher quality synthesized videos (480p->720p).
 
+### 🧱 ComfyUI implementation
+Please refer to [ComfyUI-FlashPortrait](https://github.com/okdalto/ComfyUI-FlashPortrait). Many thanks to [@okdalto](https://github.com/okdalto) for his contribution!
+
 ### 🧱 Model Training
 <b>🔥🔥It’s worth noting that if you’re looking to train a conditioned Video Diffusion Transformer (DiT) model, such as Wan2.1, this training tutorial will also be helpful.🔥🔥</b>
 For the training dataset, it has to be organized as follows:
