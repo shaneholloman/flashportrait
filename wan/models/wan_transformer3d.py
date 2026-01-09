@@ -318,10 +318,26 @@ class WanI2VCrossAttention(WanSelfAttention):
             context(Tensor): Shape [B, L2, C]
             context_lens(Tensor): Shape [B]
         """
+
+         # Check if we're in multi-GPU mode
+        try:
+            sp_world_size = get_sequence_parallel_world_size() if get_sequence_parallel_world_size is not None else 1
+            sp_world_rank = get_sequence_parallel_rank() if get_sequence_parallel_rank is not None else 0
+        except (AssertionError, AttributeError):
+            # Parallel group not initialized, we're in single GPU mode
+            sp_world_size = 1
+            sp_world_rank = 0
+
+        if sp_world_size > 1:
+            sp_group = get_sp_group()
+            x = sp_group.all_gather(x, dim=1)
+        # print("x:", x.shape)
         context_img = context[:, :257]
         context = context[:, 257:]
         b, n, d = x.size(0), self.num_heads, self.head_dim
-
+        # print("b,n,d:", b, n, d)
+        # print("context:", context.shape)
+        # print("context_img:", context_img.shape)
         # compute query, key, value
         q = self.norm_q(self.q(x.to(dtype))).view(b, -1, n, d)
         k = self.norm_k(self.k(context.to(dtype))).view(b, -1, n, d)
@@ -346,12 +362,23 @@ class WanI2VCrossAttention(WanSelfAttention):
         x = x.to(dtype)
 
         if len(emo_proj.shape) == 4:
-            emo_q = q.view(b * latents_num_frames, -1, n, d)
-            ip_key = self.emo_k_proj(emo_proj).view(b * latents_num_frames, -1, n, d)
-            ip_value = self.emo_v_proj(emo_proj).view(b * latents_num_frames, -1, n, d)
+            B, L, n, d = q.shape
+            F = emo_proj.shape[1]
+            L_eff = (L // F) * F      # drop padding tail
+            q_eff = q[:, :L_eff]
+
+            tokens_per_frame = L_eff // F
+            emo_q = q_eff.view(B * F, tokens_per_frame, n, d)
+
+            ip_key = self.emo_k_proj(emo_proj).view(B * F, -1, n, d)
+            ip_value = self.emo_v_proj(emo_proj).view(B * F, -1, n, d)
             emo_x = attention(emo_q.to(dtype), ip_key.to(dtype), ip_value.to(dtype), attn_mask=emo_attn_mask)
-            emo_x = emo_x.view(b, q.size(1), n, d)
-            emo_x = emo_x.flatten(2)
+            emo_x = emo_x.view(B, L_eff, n, d).flatten(2)
+
+            # pad emo_x back to L
+            if L_eff != L:
+                pad = emo_x.new_zeros(B, L - L_eff, emo_x.size(-1))
+                emo_x = torch.cat([emo_x, pad], dim=1)
         elif len(emo_proj.shape) == 3:
             ip_key = self.emo_k_proj(emo_proj).view(b, -1, n, d)
             ip_value = self.emo_v_proj(emo_proj).view(b, -1, n, d)
@@ -369,6 +396,10 @@ class WanI2VCrossAttention(WanSelfAttention):
 
         x = x + emo_x * ip_scale
         x = self.o(x)
+
+        if sp_world_size > 1:
+            # rechunk to original chunk size
+            x = torch.chunk(x, sp_world_size, dim=1)[sp_world_rank]
         return x
 
 
